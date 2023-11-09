@@ -1,54 +1,40 @@
 package com.example;
 
-import com.ngrok.Connection;
 import com.ngrok.Session;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.Executors;
+
 
 public class App {
-    public static void main(String[] args) throws Exception {
-        var exec = Executors.newFixedThreadPool(10);
+   public static void main(String[] args) throws IOException {
+      // Session.withAuthtokenFromEnv() will create a new session builder, pulling NGROK_AUTHTOKEN env variable.
+      // You can get your authtoken by registering at https://dashboard.ngrok.com
+      var sessionBuilder = Session.withAuthtokenFromEnv().metadata("my session");
+      // Session.Builder let you customize different aspects of the session, see docs for details.
+      // After customizing the builder, you connect:
+      try (var session = sessionBuilder.connect()) {
+         // Creates and configures http listener that will be using oauth to secure it
+         var listenerBuilder = session.httpEndpoint().metadata("my listener");
 
-        try (var session = Session.connect(Session.newBuilder());
-             var tunnel = session.tcpTunnel()) {
-            System.out.println(tunnel.getId());
-            System.out.println(tunnel.getForwardsTo());
-            System.out.println(tunnel.getMetadata());
-            System.out.println(tunnel.getUrl());
-            System.out.println(tunnel.getProto());
+         // Now start listening with the above configuration
+         try (var listener = listenerBuilder.listen()) {
+            System.out.println("ngrok url: " + listener.getUrl());
+            var buf = ByteBuffer.allocateDirect(1024);
 
             while (true) {
-                var conn = tunnel.accept();
-                System.out.printf("[%s] Accepted\n", conn.getRemoteAddr());
+               // Accept a new connection
+               var conn = listener.accept();
 
-                exec.submit(() -> {
-                    try {
-                        handle(conn);
-                    } catch (IOException exc) {
-                        exc.printStackTrace();
-                    }
-                    System.out.printf("[%s] Done\n", conn.getRemoteAddr());
-                });
+               // Read from the connection
+               conn.read(buf);
+
+               System.out.println(buf.asCharBuffer());
+
+               // Or write to it
+               conn.write(buf);
             }
-        }
-    }
-
-    public static void handle(Connection conn) throws IOException {
-        var buf = ByteBuffer.allocateDirect(1024);
-
-        try (conn) {
-            while (true) {
-                var readSz = conn.read(buf);
-                System.out.printf("[%s] Read: %d\n", conn.getRemoteAddr(), readSz);
-
-                System.out.println(StandardCharsets.UTF_8.decode(buf));
-                conn.write(buf);
-
-                buf.clear();
-            }
-        }
-    }
+         }
+      }
+   }
 }
